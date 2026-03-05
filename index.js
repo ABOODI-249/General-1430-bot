@@ -1,38 +1,26 @@
-import makeWASocket, { useMultiFileAuthState } from '@whiskeysockets/baileys'
-import pino from 'pino'
-import { config } from './config.js'
 import fs from 'fs'
+import path from 'path'
 
-async function startBot() {
+// تحميل جميع الأوامر من المجلد
+const commandsPath = path.join('./commands')
+const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'))
+const commands = []
 
-  const { state, saveCreds } = await useMultiFileAuthState('./session')
-
-  const sock = makeWASocket({
-    logger: pino({ level: 'silent' }),
-    auth: state
-  })
-
-  sock.ev.on('creds.update', saveCreds)
-
-  sock.ev.on('messages.upsert', async ({ messages }) => {
-
-    const msg = messages[0]
-    if (!msg.message) return
-
-    const text = msg.message.conversation || ""
-
-    // أمر ping
-    if (text === config.prefix + "ping") {
-      await sock.sendMessage(msg.key.remoteJid, { text: "Pong 🏓" })
-    }
-
-    // أمر menu
-    if (text === config.prefix + "menu") {
-      await sock.sendMessage(msg.key.remoteJid, { text: `👑 مرحباً بك في ${config.botname}\n\nالأوامر المتاحة:\n.ping - اختبار البوت\n.menu - عرض هذا المنيو` })
-    }
-
-  })
-
+for (const file of commandFiles) {
+  const command = await import(`./commands/${file}`)
+  commands.push(command.default)
 }
 
-startBot()
+// داخل sock.ev.on('messages.upsert')
+sock.ev.on('messages.upsert', async ({ messages }) => {
+  const msg = messages[0]
+  if (!msg.message) return
+
+  const text = msg.message.conversation || ""
+
+  for (const cmd of commands) {
+    if (text === config.prefix + cmd.name) {
+      await cmd.execute(sock, msg)
+    }
+  }
+})
